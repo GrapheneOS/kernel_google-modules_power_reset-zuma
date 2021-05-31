@@ -180,9 +180,7 @@ static int exynos_restart_handler(struct notifier_block *this, unsigned long mod
 	/* Do S/W Reset */
 	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
 
-	pr_emerg("Set PS_HOLD Low.\n");
-	mdelay(2);
-	rmw_priv_reg(pmu_alive_base + cold_reboot_offset, cold_reboot_trigger, 0);
+	set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
 
 	while (1)
 		wfi();
