@@ -79,14 +79,9 @@ static void exynos_power_off(void)
 
 	of_node_put(np);
 
-	if (!gpio_is_valid(power_gpio)) {
-		pr_err("Couldn't find power key node\n");
-		return;
-	}
-
 	while (1) {
 		/* wait for power button release */
-		if (gpio_get_value(power_gpio)) {
+		if (!gpio_is_valid(power_gpio) || gpio_get_value(power_gpio)) {
 #if IS_ENABLED(CONFIG_GS_ACPM)
 			exynos_acpm_reboot();
 #endif
