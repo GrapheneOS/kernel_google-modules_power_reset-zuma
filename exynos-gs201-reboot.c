@@ -18,6 +18,7 @@
 #include <linux/of_address.h>
 #include <linux/regmap.h>
 #include <linux/mfd/syscon.h>
+#include <linux/mfd/samsung/s2mpg12.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #if IS_ENABLED(CONFIG_GS_ACPM)
@@ -57,31 +58,11 @@ enum pon_reboot_mode {
 static void exynos_power_off(void)
 {
 	u32 poweroff_try = 0;
-	int power_gpio = -1;
-	unsigned int keycode = 0;
-	struct device_node *np, *pp;
 	int ret;
-
-	np = of_find_node_by_path("/gpio_keys");
-	if (!np)
-		return;
-
-	for_each_child_of_node(np, pp) {
-		if (!of_find_property(pp, "gpios", NULL))
-			continue;
-		of_property_read_u32(pp, "linux,code", &keycode);
-		if (keycode == KEY_POWER) {
-			pr_info("%s: <%u>\n", __func__, keycode);
-			power_gpio = of_get_gpio(pp, 0);
-			break;
-		}
-	}
-
-	of_node_put(np);
 
 	while (1) {
 		/* wait for power button release */
-		if (!gpio_is_valid(power_gpio) || gpio_get_value(power_gpio)) {
+		if ((poweroff_try) || (!pmic_read_pwrkey_status())) {
 #if IS_ENABLED(CONFIG_GS_ACPM)
 			exynos_acpm_reboot();
 #endif
