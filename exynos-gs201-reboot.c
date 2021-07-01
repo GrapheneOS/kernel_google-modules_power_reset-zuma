@@ -89,6 +89,7 @@ static void exynos_reboot_mode_set(u32 val)
 {
 	int ret;
 	phys_addr_t reboot_cmd_addr = pmu_alive_base + reboot_cmd_offset;
+	u32 reboot_mode;
 
 	ret = set_priv_reg(reboot_cmd_addr, val);
 	/* TODO: remove following fallback. see b/169128860 */
@@ -97,6 +98,12 @@ static void exynos_reboot_mode_set(u32 val)
 			__func__, &reboot_cmd_addr);
 		regmap_write(pmureg, reboot_cmd_offset, val);
 	}
+
+	reboot_mode = val | BMS_RSBM_VALID;
+	ret = gbms_storage_write(GBMS_TAG_RSBM, &reboot_mode, sizeof(reboot_mode));
+	if (ret < 0)
+		pr_err("%s(): failed to write gbms storage: %d(%d)\n", __func__,
+		       GBMS_TAG_RSBM, ret);
 }
 
 static void exynos_reboot_parse(const char *cmd)
@@ -156,7 +163,13 @@ static int exynos_restart_handler(struct notifier_block *this, unsigned long mod
 	/* Do S/W Reset */
 	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
 
-	set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
+	if (dbg_snapshot_get_panic_status()) {
+		set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
+	} else {
+		pr_emerg("Set PS_HOLD Low.\n");
+		mdelay(2);
+		rmw_priv_reg(pmu_alive_base + cold_reboot_offset, cold_reboot_trigger, 0);
+	}
 
 	while (1)
 		wfi();
