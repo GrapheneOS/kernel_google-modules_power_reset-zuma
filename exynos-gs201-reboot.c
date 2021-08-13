@@ -163,7 +163,7 @@ static int exynos_restart_handler(struct notifier_block *this, unsigned long mod
 	/* Do S/W Reset */
 	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
 
-	if (dbg_snapshot_get_panic_status()) {
+	if (!dbg_snapshot_get_reboot_status()) {
 		set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
 	} else {
 		pr_emerg("Set PS_HOLD Low.\n");
