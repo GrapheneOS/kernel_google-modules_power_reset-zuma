@@ -188,8 +188,8 @@ static int exynos_restart_handler(struct notifier_block *this, unsigned long mod
 	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
 
 	if (s2mpg10_get_rev_id() == S2MPG10_EVT0 ||
-	    !rsbm_supported ||
-	    !dbg_snapshot_get_reboot_status()) {
+	    !rsbm_supported || !dbg_snapshot_get_reboot_status() ||
+	    dbg_snapshot_get_panic_status() || dbg_snapshot_get_warm_status()) {
 		set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
 	} else {
 		pr_emerg("Set PS_HOLD Low.\n");
