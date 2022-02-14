@@ -55,36 +55,6 @@ enum pon_reboot_mode {
 	REBOOT_MODE_RECOVERY		= 0xFF,
 };
 
-static void exynos_power_off(void)
-{
-	u32 poweroff_try = 0;
-	int ret;
-
-	while (1) {
-		/* wait for power button release */
-		if ((poweroff_try) || (!pmic_read_pwrkey_status())) {
-#if IS_ENABLED(CONFIG_GS_ACPM)
-			exynos_acpm_reboot();
-#endif
-			pr_emerg("Set PS_HOLD Low.\n");
-			ret = rmw_priv_reg(pmu_alive_base + shutdown_offset, shutdown_trigger, 0);
-			/* TODO: remove following fallback. see b/169128860 */
-			if (ret)
-				regmap_update_bits(pmureg, shutdown_offset, shutdown_trigger, 0);
-
-			++poweroff_try;
-			pr_emerg("Should not reach here! (poweroff_try:%d)\n", poweroff_try);
-		} else {
-			/*
-			 * if power button is not released,
-			 * wait and check TA again
-			 */
-			pr_info("PWR Key is not released.\n");
-		}
-		mdelay(1000);
-	}
-}
-
 static void exynos_reboot_mode_set(u32 val)
 {
 	int ret;
@@ -146,6 +116,24 @@ static int exynos_reboot_handler(struct notifier_block *nb, unsigned long mode, 
 {
 	exynos_reboot_parse(cmd);
 
+	if (mode != SYS_POWER_OFF)
+		return NOTIFY_DONE;
+
+	while (1) {
+		/* wait for power button release */
+		if (!pmic_read_pwrkey_status()) {
+			pr_info("ready to do power off.\n");
+			break;
+		} else {
+			/*
+			 * if power button is not released,
+			 * wait and check TA again
+			 */
+			pr_info("PWR Key is not released.\n");
+		}
+		mdelay(1000);
+	}
+
 	return NOTIFY_DONE;
 }
 
@@ -157,23 +145,10 @@ static struct notifier_block exynos_reboot_nb = {
 static int exynos_restart_handler(struct notifier_block *this, unsigned long mode, void *cmd)
 {
 #if IS_ENABLED(CONFIG_GS_ACPM)
-	exynos_acpm_reboot();
+	acpm_prepare_reboot();
 #endif
 
-	/* Do S/W Reset */
-	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
-
-	if (!dbg_snapshot_get_reboot_status() || dbg_snapshot_get_panic_status() ||
-	    dbg_snapshot_get_warm_status()) {
-		set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
-	} else {
-		pr_emerg("Set PS_HOLD Low.\n");
-		mdelay(2);
-		rmw_priv_reg(pmu_alive_base + cold_reboot_offset, cold_reboot_trigger, 0);
-	}
-
-	while (1)
-		wfi();
+	pr_info("ready to do restart.\n");
 
 	return NOTIFY_DONE;
 }
@@ -251,7 +226,6 @@ static int exynos_reboot_probe(struct platform_device *pdev)
 		return err;
 	}
 
-	pm_power_off = exynos_power_off;
 	dev_info(dev, "register restart handler successfully\n");
 
 	return 0;
