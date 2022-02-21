@@ -180,7 +180,7 @@ static int exynos_restart_handler(struct notifier_block *this, unsigned long mod
 
 static struct notifier_block exynos_restart_nb = {
 	.notifier_call = exynos_restart_handler,
-	.priority = 128,
+	.priority = 130,
 };
 
 static int exynos_reboot_probe(struct platform_device *pdev)
