@@ -9,10 +9,7 @@
  */
 
 #include <linux/delay.h>
-#include <linux/io.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
-#include <linux/input.h>
 #include <linux/module.h>
 #include <linux/notifier.h>
 #include <linux/of_address.h>
@@ -25,20 +22,13 @@
 #include <soc/google/acpm_ipc_ctrl.h>
 #endif
 #include <soc/google/exynos-el3_mon.h>
-#include <soc/google/debug-snapshot.h>
-/* TODO: temporary workaround. must remove. see b/169128860  */
-#include <linux/soc/samsung/exynos-smc.h>
 #include "../../bms/google_bms.h"
 
 #define EXYNOS_PMU_SYSIP_DAT0		(0x0810)
 
 #define BMS_RSBM_VALID			BIT(31)
 
-static struct regmap *pmureg;
-static u32 warm_reboot_offset, warm_reboot_trigger;
-static u32 cold_reboot_offset, cold_reboot_trigger;
 static u32 reboot_cmd_offset;
-static u32 shutdown_offset, shutdown_trigger;
 static phys_addr_t pmu_alive_base;
 
 enum pon_reboot_mode {
@@ -62,11 +52,9 @@ static void exynos_reboot_mode_set(u32 val)
 	u32 reboot_mode;
 
 	ret = set_priv_reg(reboot_cmd_addr, val);
-	/* TODO: remove following fallback. see b/169128860 */
 	if (ret) {
 		pr_info("%s(): failed to set addr %pap via set_priv_reg, using regmap\n",
 			__func__, &reboot_cmd_addr);
-		regmap_write(pmureg, reboot_cmd_offset, val);
 	}
 
 	reboot_mode = val | BMS_RSBM_VALID;
@@ -165,6 +153,7 @@ static int exynos_reboot_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *np = pdev->dev.of_node;
+	struct regmap *pmureg;
 	struct device_node *syscon_np;
 	struct resource res;
 	int err;
@@ -187,29 +176,6 @@ static int exynos_reboot_probe(struct platform_device *pdev)
 	}
 
 	pmu_alive_base = res.start;
-
-	if (of_property_read_u32(np, "swreset-system-offset", &warm_reboot_offset) < 0) {
-		dev_err(dev, "failed to find swreset-system-offset property\n");
-		return -EINVAL;
-	}
-
-	if (of_property_read_u32(np, "swreset-system-trigger", &warm_reboot_trigger) < 0) {
-		dev_err(dev, "failed to find swreset-system-trigger property\n");
-		return -EINVAL;
-	}
-
-	if (of_property_read_u32(np, "pshold-control-offset", &cold_reboot_offset) < 0) {
-		dev_err(dev, "failed to find pshold-control-offset property\n");
-		return -EINVAL;
-	}
-
-	if (of_property_read_u32(np, "pshold-control-trigger", &cold_reboot_trigger) < 0) {
-		dev_err(dev, "failed to find shutdown-trigger property\n");
-		return -EINVAL;
-	}
-
-	shutdown_offset = cold_reboot_offset;
-	shutdown_trigger = cold_reboot_trigger;
 
 	if (of_property_read_u32(np, "reboot-cmd-offset", &reboot_cmd_offset) < 0) {
 		dev_info(dev, "failed to find reboot-offset property, using default\n");
