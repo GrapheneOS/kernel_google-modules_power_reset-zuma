@@ -15,18 +15,18 @@ kernel_module(
         "**/*.h",
         "Kbuild",
     ]) + [
-        "//gs/google-modules/bms:headers",
-        "//gs/google-modules/soc-modules:gs101_soc_headers",
+        "//private/google-modules/bms:headers",
+        "//private/google-modules/soc/gs:gs101_soc_headers",
     ],
     outs = [
         "exynos-reboot.ko",
     ],
-    kernel_build = "//gs/google-modules/soc-modules:slider",
+    kernel_build = "//private/google-modules/soc/gs:slider",
     kernel_module_deps = [
-        "//gs/google-modules/bms:bms.slider",
-        "//gs/google-modules/soc-modules:gs101_soc",
+        "//private/google-modules/bms:bms.slider",
+        "//private/google-modules/soc/gs:gs101_soc",
     ],
     visibility = [
-        "//gs/google-modules/soc-modules:__pkg__",
+        "//private/google-modules/soc/gs:__pkg__",
     ],
 )
