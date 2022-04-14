@@ -6,25 +6,27 @@
 # unless you have coordinated with the team managing the Soong to Bazel
 # migration.
 
-load("//build/kleaf:kernel.bzl", "kernel_module")
+load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
 kernel_module(
-    name = "reset.cloudripper",
+    name = "reset.slider",
     srcs = glob([
         "**/*.c",
         "**/*.h",
         "Kbuild",
     ]) + [
-        "//private/google-modules/bms:headers",
+        "//gs/google-modules/bms:headers",
+        "//gs/google-modules/soc-modules:gs101_soc_headers",
     ],
     outs = [
         "exynos-reboot.ko",
     ],
-    kernel_build = "//private/gs-google:cloudripper",
+    kernel_build = "//gs/google-modules/soc-modules:slider",
     kernel_module_deps = [
-        "//private/google-modules/bms:bms.cloudripper",
+        "//gs/google-modules/bms:bms.slider",
+        "//gs/google-modules/soc-modules:gs101_soc",
     ],
     visibility = [
-        "//private/gs-google:__pkg__",
+        "//gs/google-modules/soc-modules:__pkg__",
     ],
 )
