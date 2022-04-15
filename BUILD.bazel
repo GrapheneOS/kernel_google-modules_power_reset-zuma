@@ -8,6 +8,16 @@
 
 load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
+filegroup(
+    name = "reset.kconfig",
+    srcs = glob([
+        "Kconfig",
+    ]),
+    visibility = [
+        "//private/google-modules/soc/gs:__pkg__",
+    ],
+)
+
 kernel_module(
     name = "reset.slider",
     srcs = glob([
