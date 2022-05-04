@@ -46,6 +46,7 @@ enum pon_reboot_mode {
 
 	REBOOT_MODE_DMVERITY_CORRUPTED	= 0x50,
 	REBOOT_MODE_SHUTDOWN_THERMAL	= 0x51,
+	REBOOT_MODE_AB_UPDATE		= 0x52,
 
 	REBOOT_MODE_RESCUE		= 0xF9,
 	REBOOT_MODE_FASTBOOT		= 0xFA,
@@ -142,6 +143,8 @@ static void exynos_reboot_parse(const char *cmd)
 			value = REBOOT_MODE_RESCUE;
 		else if (!strcmp(cmd, "shutdown-thermal"))
 			value = REBOOT_MODE_SHUTDOWN_THERMAL;
+		else if (!strcmp(cmd, "reboot-ab-update"))
+			value = REBOOT_MODE_AB_UPDATE;
 		else if (!strcmp(cmd, "from_fastboot") ||
 			 !strcmp(cmd, "shell") ||
 			 !strcmp(cmd, "userrequested") ||
