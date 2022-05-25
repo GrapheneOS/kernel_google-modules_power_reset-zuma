@@ -2,43 +2,34 @@
 /*
  *  exynos-reboot.c - Samsung Exynos SoC reset code
  *
- * Copyright (c) 2019-2020 Samsung Electronics Co., Ltd.
+ * Copyright (c) 2019-2021 Samsung Electronics Co., Ltd.
  *
  * Author: Hyunki Koo <hyunki00.koo@samsung.com>
  *	   Youngmin Nam <youngmin.nam@samsung.com>
  */
 
 #include <linux/delay.h>
-#include <linux/io.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
-#include <linux/input.h>
 #include <linux/module.h>
 #include <linux/notifier.h>
 #include <linux/of_address.h>
 #include <linux/regmap.h>
 #include <linux/mfd/syscon.h>
-#include <linux/mfd/samsung/s2mpg10.h>
+#include <linux/mfd/samsung/s2mpg12.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #if IS_ENABLED(CONFIG_GS_ACPM)
 #include <soc/google/acpm_ipc_ctrl.h>
 #endif
 #include <soc/google/exynos-el3_mon.h>
-#include <soc/google/debug-snapshot.h>
 #include "../../bms/google_bms.h"
 
 #define EXYNOS_PMU_SYSIP_DAT0		(0x0810)
 
 #define BMS_RSBM_VALID			BIT(31)
 
-static struct regmap *pmureg;
-static u32 warm_reboot_offset, warm_reboot_trigger;
-static u32 cold_reboot_offset, cold_reboot_trigger;
 static u32 reboot_cmd_offset;
-static u32 shutdown_offset, shutdown_trigger;
 static phys_addr_t pmu_alive_base;
-static bool rsbm_supported;
 
 enum pon_reboot_mode {
 	REBOOT_MODE_NORMAL		= 0x00,
@@ -46,6 +37,7 @@ enum pon_reboot_mode {
 
 	REBOOT_MODE_DMVERITY_CORRUPTED	= 0x50,
 	REBOOT_MODE_SHUTDOWN_THERMAL	= 0x51,
+	REBOOT_MODE_AB_UPDATE		= 0x52,
 
 	REBOOT_MODE_RESCUE		= 0xF9,
 	REBOOT_MODE_FASTBOOT		= 0xFA,
@@ -54,71 +46,23 @@ enum pon_reboot_mode {
 	REBOOT_MODE_RECOVERY		= 0xFF,
 };
 
-static void exynos_power_off(void)
-{
-	u32 poweroff_try = 0;
-	int power_gpio = -1;
-	unsigned int keycode = 0;
-	struct device_node *np, *pp;
-
-	np = of_find_node_by_path("/gpio_keys");
-	if (!np)
-		return;
-
-	for_each_child_of_node(np, pp) {
-		if (!of_find_property(pp, "gpios", NULL))
-			continue;
-		of_property_read_u32(pp, "linux,code", &keycode);
-		if (keycode == KEY_POWER) {
-			pr_info("%s: <%u>\n", __func__, keycode);
-			power_gpio = of_get_gpio(pp, 0);
-			break;
-		}
-	}
-
-	of_node_put(np);
-
-	if (!gpio_is_valid(power_gpio)) {
-		pr_err("Couldn't find power key node\n");
-		return;
-	}
-
-	while (1) {
-		/* wait for power button release */
-		if (gpio_get_value(power_gpio)) {
-#if IS_ENABLED(CONFIG_GS_ACPM)
-			exynos_acpm_reboot();
-#endif
-			pr_emerg("Set PS_HOLD Low.\n");
-			rmw_priv_reg(pmu_alive_base + shutdown_offset, shutdown_trigger, 0);
-			++poweroff_try;
-			pr_emerg("Should not reach here! (poweroff_try:%d)\n", poweroff_try);
-		} else {
-			/*
-			 * if power button is not released,
-			 * wait and check TA again
-			 */
-			pr_info("PWR Key is not released.\n");
-		}
-		mdelay(1000);
-	}
-}
-
 static void exynos_reboot_mode_set(u32 val)
 {
 	int ret;
-	u32 reboot_mode;
 	phys_addr_t reboot_cmd_addr = pmu_alive_base + reboot_cmd_offset;
+	u32 reboot_mode;
 
-	set_priv_reg(reboot_cmd_addr, val);
-
-	if (s2mpg10_get_rev_id() > S2MPG10_EVT0 && rsbm_supported) {
-		reboot_mode = val | BMS_RSBM_VALID;
-		ret = gbms_storage_write(GBMS_TAG_RSBM, &reboot_mode, sizeof(reboot_mode));
-		if (ret < 0)
-			pr_err("%s(): failed to write gbms storage: %d(%d)\n", __func__,
-			       GBMS_TAG_RSBM, ret);
+	ret = set_priv_reg(reboot_cmd_addr, val);
+	if (ret) {
+		pr_info("%s(): failed to set addr %pap via set_priv_reg, using regmap\n",
+			__func__, &reboot_cmd_addr);
 	}
+
+	reboot_mode = val | BMS_RSBM_VALID;
+	ret = gbms_storage_write(GBMS_TAG_RSBM, &reboot_mode, sizeof(reboot_mode));
+	if (ret < 0)
+		pr_err("%s(): failed to write gbms storage: %d(%d)\n", __func__,
+		       GBMS_TAG_RSBM, ret);
 }
 
 static void exynos_reboot_parse(const char *cmd)
@@ -142,6 +86,8 @@ static void exynos_reboot_parse(const char *cmd)
 			value = REBOOT_MODE_RESCUE;
 		else if (!strcmp(cmd, "shutdown-thermal"))
 			value = REBOOT_MODE_SHUTDOWN_THERMAL;
+		else if (!strcmp(cmd, "reboot-ab-update"))
+			value = REBOOT_MODE_AB_UPDATE;
 		else if (!strcmp(cmd, "from_fastboot") ||
 			 !strcmp(cmd, "shell") ||
 			 !strcmp(cmd, "userrequested") ||
@@ -159,15 +105,6 @@ static void exynos_reboot_parse(const char *cmd)
 
 static int exynos_reboot_handler(struct notifier_block *nb, unsigned long mode, void *cmd)
 {
-	u32 data;
-	int ret;
-
-	ret = gbms_storage_read(GBMS_TAG_RSBM, &data, sizeof(data));
-	if (ret < 0)
-		pr_err("%s(): failed to read gbms storage: %d(%d)\n", __func__, GBMS_TAG_RSBM, ret);
-
-	rsbm_supported = ret != -ENOENT;
-
 	exynos_reboot_parse(cmd);
 
 	return NOTIFY_DONE;
@@ -181,37 +118,45 @@ static struct notifier_block exynos_reboot_nb = {
 static int exynos_restart_handler(struct notifier_block *this, unsigned long mode, void *cmd)
 {
 #if IS_ENABLED(CONFIG_GS_ACPM)
-	exynos_acpm_reboot();
+	acpm_prepare_reboot();
 #endif
 
-	/* Do S/W Reset */
-	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
-
-	if (s2mpg10_get_rev_id() == S2MPG10_EVT0 ||
-	    !rsbm_supported || !dbg_snapshot_get_reboot_status() ||
-	    dbg_snapshot_get_panic_status()) {
-		set_priv_reg(pmu_alive_base + warm_reboot_offset, warm_reboot_trigger);
-	} else {
-		pr_emerg("Set PS_HOLD Low.\n");
-		mdelay(2);
-		rmw_priv_reg(pmu_alive_base + cold_reboot_offset, cold_reboot_trigger, 0);
-	}
-
-	while (1)
-		wfi();
+	pr_info("ready to do restart.\n");
 
 	return NOTIFY_DONE;
 }
 
 static struct notifier_block exynos_restart_nb = {
 	.notifier_call = exynos_restart_handler,
-	.priority = 128,
+	.priority = 130,
 };
+
+static void exynos_power_off(struct platform_device *pdev)
+{
+	while (1) {
+		/* wait for power button release */
+		if (!pmic_read_pwrkey_status()) {
+#if IS_ENABLED(CONFIG_GS_ACPM)
+			acpm_prepare_reboot();
+#endif
+			pr_info("ready to do power off.\n");
+			break;
+		} else {
+			/*
+			 * if power button is not released,
+			 * wait and check TA again
+			 */
+			pr_info("PWR Key is not released.\n");
+		}
+		mdelay(1000);
+	}
+}
 
 static int exynos_reboot_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *np = pdev->dev.of_node;
+	struct regmap *pmureg;
 	struct device_node *syscon_np;
 	struct resource res;
 	int err;
@@ -235,29 +180,6 @@ static int exynos_reboot_probe(struct platform_device *pdev)
 
 	pmu_alive_base = res.start;
 
-	if (of_property_read_u32(np, "swreset-system-offset", &warm_reboot_offset) < 0) {
-		dev_err(dev, "failed to find swreset-system-offset property\n");
-		return -EINVAL;
-	}
-
-	if (of_property_read_u32(np, "swreset-system-trigger", &warm_reboot_trigger) < 0) {
-		dev_err(dev, "failed to find swreset-system-trigger property\n");
-		return -EINVAL;
-	}
-
-	if (of_property_read_u32(np, "pshold-control-offset", &cold_reboot_offset) < 0) {
-		dev_err(dev, "failed to find pshold-control-offset property\n");
-		return -EINVAL;
-	}
-
-	if (of_property_read_u32(np, "pshold-control-trigger", &cold_reboot_trigger) < 0) {
-		dev_err(dev, "failed to find shutdown-trigger property\n");
-		return -EINVAL;
-	}
-
-	shutdown_offset = cold_reboot_offset;
-	shutdown_trigger = cold_reboot_trigger;
-
 	if (of_property_read_u32(np, "reboot-cmd-offset", &reboot_cmd_offset) < 0) {
 		dev_info(dev, "failed to find reboot-offset property, using default\n");
 		reboot_cmd_offset = EXYNOS_PMU_SYSIP_DAT0;
@@ -276,7 +198,6 @@ static int exynos_reboot_probe(struct platform_device *pdev)
 		return err;
 	}
 
-	pm_power_off = exynos_power_off;
 	dev_info(dev, "register restart handler successfully\n");
 
 	return 0;
@@ -289,6 +210,7 @@ static const struct of_device_id exynos_reboot_of_match[] = {
 
 static struct platform_driver exynos_reboot_driver = {
 	.probe = exynos_reboot_probe,
+	.shutdown = exynos_power_off,
 	.driver = {
 		.name = "exynos-reboot",
 		.of_match_table = exynos_reboot_of_match,
