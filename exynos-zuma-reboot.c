@@ -18,9 +18,7 @@
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <soc/google/exynos-el3_mon.h>
-/* [TODO] b/238076990: wait for gbms module is ready
- #include "../../bms/google_bms.h"
- */
+#include "../../bms/google_bms.h"
 
 #define EXYNOS_PMU_SYSIP_DAT0		(0x0810)
 
@@ -58,12 +56,10 @@ static void exynos_reboot_mode_set(u32 val)
 	}
 
 	mode = val | BMS_RSBM_VALID;
-	/* [TODO] b/238076990: wait for gbms module is ready
 	ret = gbms_storage_write(GBMS_TAG_RSBM, &mode, sizeof(mode));
 	if (ret < 0)
 		pr_err("%s(): failed to write gbms storage: %d(%d)\n", __func__,
 		       GBMS_TAG_RSBM, ret);
-	 */
 }
 
 static void exynos_reboot_parse(const char *cmd)
