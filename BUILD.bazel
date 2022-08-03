@@ -25,6 +25,7 @@ kernel_module(
         "**/*.h",
         "Kbuild",
     ]) + [
+        "//private/google-modules/bms/misc:headers",
         "//private/google-modules/bms:headers",
         "//private/google-modules/soc/gs:gs101_soc_headers",
     ],
