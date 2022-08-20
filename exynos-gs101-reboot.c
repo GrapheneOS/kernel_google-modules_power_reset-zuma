@@ -39,6 +39,7 @@ static u32 reboot_cmd_offset;
 static u32 shutdown_offset, shutdown_trigger;
 static phys_addr_t pmu_alive_base;
 static bool rsbm_supported;
+static bool force_warm_reboot_on_thermal_shutdown;
 
 enum pon_reboot_mode {
 	REBOOT_MODE_NORMAL		= 0x00,
@@ -108,14 +109,14 @@ static void exynos_power_off(void)
 static void exynos_reboot_mode_set(u32 val)
 {
 	int ret;
-	u32 reboot_mode;
+	u32 mode;
 	phys_addr_t reboot_cmd_addr = pmu_alive_base + reboot_cmd_offset;
 
 	set_priv_reg(reboot_cmd_addr, val);
 
 	if (s2mpg10_get_rev_id() > S2MPG10_EVT0 && rsbm_supported) {
-		reboot_mode = val | BMS_RSBM_VALID;
-		ret = gbms_storage_write(GBMS_TAG_RSBM, &reboot_mode, sizeof(reboot_mode));
+		mode = val | BMS_RSBM_VALID;
+		ret = gbms_storage_write(GBMS_TAG_RSBM, &mode, sizeof(mode));
 		if (ret < 0)
 			pr_err("%s(): failed to write gbms storage: %d(%d)\n", __func__,
 			       GBMS_TAG_RSBM, ret);
@@ -126,34 +127,43 @@ static void exynos_reboot_parse(const char *cmd)
 {
 	if (cmd) {
 		u32 value = U32_MAX;
+		bool force_warm_reboot = false;
 
 		pr_info("Reboot command: '%s'\n", cmd);
 
-		if (!strcmp(cmd, "charge"))
+		if (!strcmp(cmd, "charge")) {
 			value = REBOOT_MODE_CHARGE;
-		else if (!strcmp(cmd, "bootloader"))
+		} else if (!strcmp(cmd, "bootloader")) {
 			value = REBOOT_MODE_BOOTLOADER;
-		else if (!strcmp(cmd, "fastboot"))
+		} else if (!strcmp(cmd, "fastboot")) {
 			value = REBOOT_MODE_FASTBOOT;
-		else if (!strcmp(cmd, "recovery"))
+		} else if (!strcmp(cmd, "recovery")) {
 			value = REBOOT_MODE_RECOVERY;
-		else if (!strcmp(cmd, "dm-verity device corrupted"))
+		} else if (!strcmp(cmd, "dm-verity device corrupted")) {
 			value = REBOOT_MODE_DMVERITY_CORRUPTED;
-		else if (!strcmp(cmd, "rescue"))
+		}  else if (!strcmp(cmd, "rescue")) {
 			value = REBOOT_MODE_RESCUE;
-		else if (!strcmp(cmd, "shutdown-thermal"))
+		} else if (!strcmp(cmd, "shutdown-thermal") ||
+			   !strcmp(cmd, "shutdown,thermal")) {
+			if (force_warm_reboot_on_thermal_shutdown)
+				force_warm_reboot = true;
 			value = REBOOT_MODE_SHUTDOWN_THERMAL;
-		else if (!strcmp(cmd, "reboot-ab-update"))
+		} else if (!strcmp(cmd, "reboot-ab-update")) {
 			value = REBOOT_MODE_AB_UPDATE;
-		else if (!strcmp(cmd, "from_fastboot") ||
-			 !strcmp(cmd, "shell") ||
-			 !strcmp(cmd, "userrequested") ||
-			 !strcmp(cmd, "userrequested,fastboot") ||
-			 !strcmp(cmd, "userrequested,recovery") ||
-			 !strcmp(cmd, "userrequested,recovery,ui"))
+		} else if (!strcmp(cmd, "from_fastboot") ||
+			   !strcmp(cmd, "shell") ||
+			   !strcmp(cmd, "userrequested") ||
+			   !strcmp(cmd, "userrequested,fastboot") ||
+			   !strcmp(cmd, "userrequested,recovery") ||
+			   !strcmp(cmd, "userrequested,recovery,ui")) {
 			value = REBOOT_MODE_NORMAL;
-		else
+		} else {
 			pr_err("Unknown reboot command: '%s'\n", cmd);
+		}
+
+		/* check for warm_reboot */
+		if (force_warm_reboot)
+			reboot_mode = REBOOT_WARM;
 
 		if (value != U32_MAX)
 			exynos_reboot_mode_set(value);
@@ -265,6 +275,9 @@ static int exynos_reboot_probe(struct platform_device *pdev)
 		dev_info(dev, "failed to find reboot-offset property, using default\n");
 		reboot_cmd_offset = EXYNOS_PMU_SYSIP_DAT0;
 	}
+
+	force_warm_reboot_on_thermal_shutdown = of_property_read_bool(np,
+						"force-warm-reboot-on-thermal-shutdown");
 
 	err = register_reboot_notifier(&exynos_reboot_nb);
 	if (err) {
