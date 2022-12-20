@@ -83,8 +83,8 @@ static void exynos_reboot_parse(const char *cmd)
 			value = REBOOT_MODE_DMVERITY_CORRUPTED;
 		} else if (!strcmp(cmd, "rescue")) {
 			value = REBOOT_MODE_RESCUE;
-		} else if (!strcmp(cmd, "shutdown-thermal") ||
-			   !strcmp(cmd, "shutdown,thermal")) {
+		} else if (!strncmp(cmd, "shutdown-thermal", strlen("shutdown-thermal")) ||
+			   !strncmp(cmd, "shutdown,thermal", strlen("shutdown,thermal"))) {
 			if (force_warm_reboot_on_thermal_shutdown)
 				force_warm_reboot = true;
 			value = REBOOT_MODE_SHUTDOWN_THERMAL;
