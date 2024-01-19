@@ -67,7 +67,7 @@ static void exynos_reboot_parse(const char *cmd)
 {
 	if (cmd) {
 		u32 value = U32_MAX;
-		bool force_warm_reboot = false;
+		static const bool force_warm_reboot = false;
 
 		pr_info("Reboot command: '%s'\n", cmd);
 
@@ -85,8 +85,6 @@ static void exynos_reboot_parse(const char *cmd)
 			value = REBOOT_MODE_RESCUE;
 		} else if (!strncmp(cmd, "shutdown-thermal", strlen("shutdown-thermal")) ||
 			   !strncmp(cmd, "shutdown,thermal", strlen("shutdown,thermal"))) {
-			if (force_warm_reboot_on_thermal_shutdown)
-				force_warm_reboot = true;
 			value = REBOOT_MODE_SHUTDOWN_THERMAL;
 		} else if (!strcmp(cmd, "reboot-ab-update")) {
 			value = REBOOT_MODE_AB_UPDATE;
